@@ -8,6 +8,7 @@ import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.shape.Rectangle;
 import org.example.config.AppConfig;
+import org.example.events.SimulationEvent;
 import org.example.gui.helpers.EntranceHelper;
 import org.example.gui.helpers.PoolsHelper;
 import org.example.gui.helpers.QueueHelper;
@@ -69,6 +70,10 @@ public class MainController {
     @FXML
     private AnchorPane animationPane;
 
+    private PoolsHelper poolsHelper;
+    private QueueHelper queueHelper;
+    private EntranceHelper entranceHelper;
+
     @FXML
     private void initialize() {
 
@@ -78,7 +83,7 @@ public class MainController {
         });
 
         cashierZones = List.of(cashierZone1,cashierZone2,cashierZone3);
-        PoolsHelper poolsHelper = new PoolsHelper(
+        poolsHelper = new PoolsHelper(
                 animationPane,
                 olympicPoolZone,
                 recreationalPoolZone,
@@ -88,8 +93,8 @@ public class MainController {
                 paddlingWait,
                 exitZone
         );
-        QueueHelper queueHelper = new QueueHelper(cashierZones,gateZone,poolsHelper);
-        EntranceHelper entranceHelper = new EntranceHelper(animationPane,queueZone,entranceZone,queueHelper);
+        queueHelper = new QueueHelper(cashierZones,gateZone,poolsHelper);
+        entranceHelper = new EntranceHelper(animationPane,queueZone,entranceZone,queueHelper);
 
 
 
@@ -100,6 +105,12 @@ public class MainController {
                 }
                 );
 
+    }
+
+    public void handleEvent(SimulationEvent event){
+        switch (event.getType()){
+            case ENTERED_CENTER -> entranceHelper.createCustomer(event.getCustomerId());
+        }
     }
 
 

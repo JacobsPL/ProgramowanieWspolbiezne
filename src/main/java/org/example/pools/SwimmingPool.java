@@ -115,4 +115,8 @@ public abstract class SwimmingPool {
 
         return sb.toString();
     }
+
+    public String getName(){
+        return NAME;
+    }
 }

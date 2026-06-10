@@ -4,8 +4,8 @@ public class Customer {
     protected final int AGE;
     protected final boolean HAS_PAMPERS;
     protected final String NAME;
-
     protected final boolean VIP;
+
 
     public Customer(String name, int age, boolean isVip, boolean hasPampers) {
         this.NAME = name;

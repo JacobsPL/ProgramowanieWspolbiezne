@@ -7,6 +7,8 @@ import java.util.List;
 public class CustomerGroupFactory {
     CustomerFactory customerFactory = new CustomerFactory();
 
+    private int customerId = 0;
+
     public CustomerGroupFactory() throws IOException {
     }
 
@@ -20,6 +22,6 @@ public class CustomerGroupFactory {
             customerList.add(customer);
         }while (needsAdultFlag);
 
-        return new CustomerGroup(customerList);
+        return new CustomerGroup(customerList,customerId++);
     }
 }

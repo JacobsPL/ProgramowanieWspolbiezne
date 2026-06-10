@@ -18,6 +18,8 @@ public class CustomerFactory {
     private final int vipChancePercent;
     private final int pampersChancePercent;
 
+
+
     public CustomerFactory() throws IOException {
         AppConfig config = AppConfig.getInstance();
         names = loadNames(config.getString("customer.names.file"));

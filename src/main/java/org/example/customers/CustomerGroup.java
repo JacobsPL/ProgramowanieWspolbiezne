@@ -7,11 +7,14 @@ public class CustomerGroup {
     private final List<Customer> customers;
     private int ageSum;
 
-    public CustomerGroup(List<Customer> customers) {
+    private int customerId;
+
+    public CustomerGroup(List<Customer> customers, int customerId) {
         this.customers = customers;
         for (Customer customer: customers){
             ageSum += customer.getAge();
         }
+        this.customerId = customerId;
     }
     public int getAgeSum(){
         return ageSum;
@@ -68,5 +71,9 @@ public class CustomerGroup {
             }
         }
         return false;
+    }
+
+    public int getCustomerId() {
+        return customerId;
     }
 }
