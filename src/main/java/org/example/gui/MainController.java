@@ -9,6 +9,7 @@ import javafx.scene.layout.AnchorPane;
 import javafx.scene.shape.Rectangle;
 import org.example.config.AppConfig;
 import org.example.gui.helpers.EntranceHelper;
+import org.example.gui.helpers.PoolsHelper;
 import org.example.gui.helpers.QueueHelper;
 
 import java.util.List;
@@ -38,11 +39,27 @@ public class MainController {
     private Rectangle entranceZone;
 
     @FXML
+    private Rectangle exitZone;
+    @FXML
     private Rectangle cashierZone1;
     @FXML
     private Rectangle cashierZone2;
     @FXML
     private Rectangle cashierZone3;
+
+    @FXML
+    private Rectangle olympicPoolZone;
+    @FXML
+    private Rectangle recreationalPoolZone;
+    @FXML
+    private Rectangle paddlingPoolZone;
+    @FXML
+    private Rectangle olympicWait;
+    @FXML
+    private Rectangle recreationalWait;
+    @FXML
+    private Rectangle paddlingWait;
+
 
     @FXML
     private Rectangle gateZone;
@@ -61,7 +78,17 @@ public class MainController {
         });
 
         cashierZones = List.of(cashierZone1,cashierZone2,cashierZone3);
-        QueueHelper queueHelper = new QueueHelper(cashierZones,gateZone);
+        PoolsHelper poolsHelper = new PoolsHelper(
+                animationPane,
+                olympicPoolZone,
+                recreationalPoolZone,
+                paddlingPoolZone,
+                olympicWait,
+                recreationalWait,
+                paddlingWait,
+                exitZone
+        );
+        QueueHelper queueHelper = new QueueHelper(cashierZones,gateZone,poolsHelper);
         EntranceHelper entranceHelper = new EntranceHelper(animationPane,queueZone,entranceZone,queueHelper);
 
 
