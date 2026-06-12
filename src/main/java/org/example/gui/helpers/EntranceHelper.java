@@ -1,57 +1,60 @@
 package org.example.gui.helpers;
 
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
 import javafx.geometry.Point2D;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
-import javafx.util.Duration;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class EntranceHelper {
 
     private final Rectangle queueZone;
     private final Rectangle entranceZone;
     private final AnchorPane animationPane;
-    private final QueueHelper queueHelper;
-
+    private int lastRowTaken = 0;
+    private int lastColumnTaken = 0;
+    private Map <Integer, Circle> customers = new HashMap<>();
     public EntranceHelper(AnchorPane animationPane,
                           Rectangle queueZone,
-                          Rectangle entranceZone,
-                          QueueHelper queueHelper) {
+                          Rectangle entranceZone
+                          ) {
         this.animationPane = animationPane;
         this.queueZone = queueZone;
         this.entranceZone = entranceZone;
-        this.queueHelper = queueHelper;
     }
 
-    private void createCustomerWithDelay(Point2D queuePosition, int delay) {
-        Timeline timeline = new Timeline();
-
-        KeyFrame keyFrame = new KeyFrame(
-                Duration.millis(delay),
-                event -> createSingleCustomer(queuePosition)
-        );
-
-        timeline.getKeyFrames().add(keyFrame);
-        timeline.play();
-    }
-
-    private void createSingleCustomer(Point2D queuePosition) {
+    public void createCustomer(Integer customerID, boolean vipGroup, boolean childGroup, Runnable onFinished) {
         Point2D entrancePosition = AnimationHelper.centerOf(entranceZone);
+        Point2D queuePosition = getNextQueuePosition();
 
         Circle customer = new Circle(5);
-        customer.setFill(Color.ORANGE);
+        customer.setFill(getCustomerColor(vipGroup, childGroup));
         customer.setStroke(Color.BLACK);
         customer.setLayoutX(entrancePosition.getX());
         customer.setLayoutY(entrancePosition.getY());
+        customers.put(customerID,customer);
+
         animationPane.getChildren().add(customer);
 
-        AnimationHelper.moveTo(customer, queuePosition, () -> queueHelper.moveCustomerToCashier(customer));
+        AnimationHelper.moveTo(customer, queuePosition, onFinished);
     }
 
-    public void createCustomer(int customerAmount) {
+    private Color getCustomerColor(boolean vipGroup, boolean childGroup) {
+        if (vipGroup) {
+            return Color.RED;
+        }
+
+        if (childGroup) {
+            return Color.LIMEGREEN;
+        }
+
+        return Color.ORANGE;
+    }
+
+    public Point2D getNextQueuePosition (){
         int padding = 20;
         int spacing = 20;
 
@@ -64,19 +67,38 @@ public class EntranceHelper {
         int columnAmount = (int) (queueWidth / spacing);
         int rowAmount = (int) (queueHeight / spacing);
 
-        int customersCreated = 0;
-        for (int row = 0; row < rowAmount; row++) {
-            for (int column = 0; column < columnAmount; column++) {
-                if (customersCreated >= customerAmount) return;
-
-                double x = startQueueX + column * padding;
-                double y = startQueueY + row * padding;
-                Point2D queuePosition = new Point2D(x, y);
-                int delay = 1 + customersCreated * 150;
-                createCustomerWithDelay(queuePosition, delay);
-
-                customersCreated++;
+        if(lastRowTaken<=rowAmount){
+            if (lastColumnTaken>=columnAmount){
+                lastRowTaken++;
+                lastColumnTaken=0;
             }
+
+                double x = startQueueX + lastColumnTaken * padding;
+                double y = startQueueY + lastRowTaken * padding;
+                lastColumnTaken++;
+                return new Point2D(x, y);
+        }else {
+            //jeśli nie wszedł do ostatniego if to znaczy że skończyły się miejsca w kolejce i trzeba zacząć zapełniać od nowa
+            lastColumnTaken=0;
+            lastRowTaken=0;
+            double x = startQueueX + lastColumnTaken * padding;
+            double y = startQueueY + lastRowTaken * padding;
+            lastColumnTaken++;
+            return new Point2D(x, y);
         }
+    }
+
+    public Circle getCustomer(int customerId) {
+        return customers.get(customerId);
+    }
+
+    public void removeCustomer(int customerId) {
+        customers.remove(customerId);
+    }
+
+    public void clear() {
+        customers.clear();
+        lastRowTaken = 0;
+        lastColumnTaken = 0;
     }
 }

@@ -10,6 +10,7 @@ import javafx.util.Duration;
 import org.example.config.AppConfig;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,19 +18,15 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class PoolsHelper {
 
-    private static final int QUEUE_PADDING = 14;
-    private static final int QUEUE_SPACING = 16;
-    private static final int POOL_PADDING = 20;
-    private static final int POOL_SPACING = 18;
-    private static final int MIN_WAIT_IN_QUEUE_MS = 700;
-    private static final int MAX_WAIT_IN_QUEUE_MS = 1500;
-
+    private static final int PADDING = 14;
+    private static final int SPACING = 16;
     private final Rectangle exitZone;
     private final AnchorPane animationPane;
-    private final List<PoolState> pools;
-    private final Map<Circle, PoolState> customerPools = new IdentityHashMap<>();
+    private final Map<String, PoolViewState> pools = new HashMap<>();
+    private final Map<Circle, PoolViewState> customerPools = new IdentityHashMap<>();
     private final Map<Circle, Integer> customerPoolSlots = new IdentityHashMap<>();
     private final Map<Circle, Integer> customerQueueSlots = new IdentityHashMap<>();
+    private final Map<Circle, PoolSlot> pendingPoolSlotsToRelease = new IdentityHashMap<>();
 
     public PoolsHelper(AnchorPane animationPane,
                        Rectangle olympicPoolZone,
@@ -42,207 +39,203 @@ public class PoolsHelper {
         AppConfig config = AppConfig.getInstance();
         this.animationPane = animationPane;
         this.exitZone = exitZone;
-        this.pools = List.of(
-                new PoolState(olympicPoolZone, olympicWaitZone, config.getInt("pool.olympic.capacity")),
-                new PoolState(recreationalPoolZone, recreationalWaitZone, config.getInt("pool.recreational.capacity")),
-                new PoolState(paddlingPoolZone, paddlingWaitZone, config.getInt("pool.paddling.capacity"))
+
+        addPool(
+                config.getString("pool.olympic.name"),
+                olympicPoolZone,
+                olympicWaitZone,
+                config.getInt("pool.olympic.capacity")
+        );
+        addPool(
+                config.getString("pool.recreational.name"),
+                recreationalPoolZone,
+                recreationalWaitZone,
+                config.getInt("pool.recreational.capacity")
+        );
+        addPool(
+                config.getString("pool.paddling.name"),
+                paddlingPoolZone,
+                paddlingWaitZone,
+                config.getInt("pool.paddling.capacity")
         );
     }
 
-    public void moveCustomerToPool(Circle customer, Rectangle pool) {
-        PoolState poolState = findPoolState(pool);
-        Timeline timeline = new Timeline();
-        int delay = ThreadLocalRandom.current().nextInt(200, 500);
-
-        KeyFrame keyFrame = new KeyFrame(
-                Duration.millis(delay),
-                event -> moveCustomerToPoolQueue(customer, poolState)
-        );
-
-        timeline.getKeyFrames().add(keyFrame);
-        timeline.play();
+    private void addPool(String poolName, Rectangle poolZone, Rectangle waitZone, int poolCapacity) {
+        pools.put(poolName, new PoolViewState(poolZone, waitZone, poolCapacity));
     }
 
-    public Rectangle getRandomPool() {
-        return pools.get(ThreadLocalRandom.current().nextInt(pools.size())).poolZone;
-    }
+    public void moveCustomerToPoolQueue(Circle customer, String poolName, Runnable onFinished) {
+        PoolViewState pool = findPoolState(poolName);
+        int queueSlot = reserveSlot(pool, false);
 
-    private void moveCustomerToPoolQueue(Circle customer, PoolState pool) {
-        int queueSlot = reserveQueueSlot(pool);
-
-        pool.waitingCustomers.add(customer);
         customerQueueSlots.put(customer, queueSlot);
 
-        Point2D queuePosition = getQueuePosition(pool.waitZone, queueSlot);
-        AnimationHelper.moveTo(customer, queuePosition, () -> waitInPoolQueue(pool));
-    }
-
-    private void waitInPoolQueue(PoolState pool) {
-        Timeline queueWaitTime = new Timeline(
-                new KeyFrame(
-                        Duration.millis(ThreadLocalRandom.current().nextInt(MIN_WAIT_IN_QUEUE_MS, MAX_WAIT_IN_QUEUE_MS)),
-                        event -> tryMoveNextCustomerIntoPool(pool)
-                )
-        );
-        queueWaitTime.play();
-    }
-
-    private void tryMoveNextCustomerIntoPool(PoolState pool) {
-        while (pool.occupiedCustomers < pool.capacity && !pool.waitingCustomers.isEmpty()) {
-            Circle customer = pool.waitingCustomers.remove(0);
-            Integer queueSlot = customerQueueSlots.remove(customer);
-            if (queueSlot != null) {
-                pool.occupiedQueueSlots[queueSlot] = false;
+        Point2D queuePosition = getPosition(pool, queueSlot,false);
+        moveWithShortDelay(customer, queuePosition, () -> {
+            releasePendingPoolSlot(customer);
+            if (onFinished != null) {
+                onFinished.run();
             }
+        });
+    }
 
-            int slot = reservePoolSlot(pool);
-            pool.occupiedCustomers++;
-            customerPools.put(customer, pool);
-            customerPoolSlots.put(customer, slot);
+    public void moveCustomerToPool(Circle customer, String poolName, Runnable onFinished) {
+        PoolViewState pool = findPoolState(poolName);
+        releaseQueueSlot(customer, pool);
 
-            Point2D poolPosition = getPoolPosition(pool, slot);
-            AnimationHelper.moveTo(customer, poolPosition, () -> waitInPool(customer));
+        int poolSlot = reserveSlot(pool,true);
+        customerPools.put(customer, pool);
+        customerPoolSlots.put(customer, poolSlot);
+
+        Point2D poolPosition = getPosition(pool, poolSlot,true);
+        moveWithShortDelay(customer, poolPosition, onFinished);
+    }
+
+    public void leavePool(Circle customer, String poolName) {
+        PoolViewState pool = customerPools.remove(customer);
+        if (pool == null) {
+            pool = findPoolState(poolName);
+        }
+
+        Integer poolSlot = customerPoolSlots.remove(customer);
+        if (poolSlot != null) {
+            pendingPoolSlotsToRelease.put(customer, new PoolSlot(pool, poolSlot));
         }
     }
 
-    private void waitInPool(Circle customer) {
-        Timeline swimmingTime = new Timeline(
-                new KeyFrame(
-                        Duration.millis(ThreadLocalRandom.current().nextInt(1000, 3000)),
-                        event -> leavePool(customer)
-                )
-        );
-        swimmingTime.play();
-    }
-
-    private void leavePool(Circle customer) {
-        PoolState pool = customerPools.remove(customer);
-        Integer slot = customerPoolSlots.remove(customer);
-
-        if (pool != null && slot != null) {
-            pool.occupiedSlots[slot] = false;
-            pool.occupiedCustomers--;
-            tryMoveNextCustomerIntoPool(pool);
-        }
-
-        if (shouldVisitAnotherPool()) {
-            moveCustomerToPool(customer, getRandomPool());
-        } else {
-            moveCustomerToExit(customer);
+    private void releasePendingPoolSlot(Circle customer) {
+        PoolSlot poolSlot = pendingPoolSlotsToRelease.remove(customer);
+        if (poolSlot != null) {
+            poolSlot.pool.occupiedPoolSlots.set(poolSlot.slot, false);
         }
     }
 
-    private boolean shouldVisitAnotherPool() {
-        return ThreadLocalRandom.current().nextInt(100) < 60;
+    public void moveCustomerToExit(Circle customer, Runnable onFinished) {
+        Point2D exitPosition = AnimationHelper.centerOf(exitZone);
+        moveWithShortDelay(customer, exitPosition, () -> {
+            releasePendingPoolSlot(customer);
+            animationPane.getChildren().remove(customer);
+            if (onFinished != null) {
+                onFinished.run();
+            }
+        });
     }
 
-    public void moveCustomerToExit(Circle customer) {
+    private void moveWithShortDelay(Circle customer, Point2D target, Runnable onFinished) {
         Timeline timeline = new Timeline();
         int delay = ThreadLocalRandom.current().nextInt(200, 500);
 
         KeyFrame keyFrame = new KeyFrame(
                 Duration.millis(delay),
-                event -> transitionToExit(customer)
+                event -> AnimationHelper.moveTo(customer, target, onFinished)
         );
 
         timeline.getKeyFrames().add(keyFrame);
         timeline.play();
     }
 
-    private void transitionToExit(Circle customer) {
-        Point2D exitPosition = AnimationHelper.centerOf(exitZone);
-        AnimationHelper.moveTo(customer, exitPosition, () -> animationPane.getChildren().remove(customer));
+    private void releaseQueueSlot(Circle customer, PoolViewState pool) {
+        Integer queueSlot = customerQueueSlots.remove(customer);
+        if (queueSlot != null) {
+            pool.occupiedQueueSlots.set(queueSlot, false);
+        }
     }
 
-    private Point2D getQueuePosition(Rectangle waitZone, int index) {
-        double startX = waitZone.getLayoutX() + QUEUE_PADDING;
-        double startY = waitZone.getLayoutY() + QUEUE_PADDING;
+    private Point2D getPosition(PoolViewState pool, int slot, boolean isPool) {
+        double startX;
+        double startY;
+        int columns;
 
-        int columns = (int) ((waitZone.getWidth() - 2 * QUEUE_PADDING) / QUEUE_SPACING);
-        if (columns <= 0) {
-            columns = 1;
+        if(isPool) {
+            startX = pool.poolZone.getLayoutX() + PADDING;
+            startY = pool.poolZone.getLayoutY() + PADDING;
+            columns = (int) ((pool.poolZone.getWidth() - 2 * PADDING) / SPACING);
+        }else {
+            startX = pool.waitZone.getLayoutX() + PADDING;
+            startY = pool.waitZone.getLayoutY() + PADDING;
+            columns = (int) ((pool.waitZone.getWidth() - 2 * PADDING) / SPACING);
         }
 
-        double x = startX + (index % columns) * QUEUE_SPACING;
-        double y = startY + (index / columns) * QUEUE_SPACING;
+        int row = 0;
+        int column = 0;
+
+        for (int i = 0; i < slot; i++) {
+            column++;
+
+            if (column >= columns) {
+                row++;
+                column = 0;
+            }
+        }
+
+        double x = startX + column * SPACING;
+        double y = startY + row * SPACING;
 
         return new Point2D(x, y);
     }
 
+    private int reserveSlot(PoolViewState pool, boolean isPool) {
+        if(isPool) {
+            for (int i = 0; i < pool.occupiedPoolSlots.size(); i++) {
+                if (!pool.occupiedPoolSlots.get(i)) {
+                    pool.occupiedPoolSlots.set(i, true);
+                    return i;
+                }
+            }
+            pool.occupiedPoolSlots.add(true);
+            return pool.occupiedPoolSlots.size() - 1;
+        }else{
+            for (int i = 0; i < pool.occupiedQueueSlots.size(); i++) {
+                if (!pool.occupiedQueueSlots.get(i)) {
+                    pool.occupiedQueueSlots.set(i, true);
+                    return i;
+                }
+            }
+            pool.occupiedQueueSlots.add(true);
+            return pool.occupiedQueueSlots.size() - 1;
+        }
+    }
+
+    private PoolViewState findPoolState(String poolName) {
+        PoolViewState pool = pools.get(poolName);
+        if (pool == null) {
+            throw new IllegalArgumentException("Nieznany basen: " + poolName);
+        }
+        return pool;
+    }
+
     private static int getQueueSlotCount(Rectangle waitZone) {
-        int columns = (int) ((waitZone.getWidth() - 2 * QUEUE_PADDING) / QUEUE_SPACING);
-        int rows = (int) ((waitZone.getHeight() - 2 * QUEUE_PADDING) / QUEUE_SPACING);
-
-        if (columns <= 0) {
-            columns = 1;
-        }
-
-        if (rows <= 0) {
-            rows = 1;
-        }
+        int columns = (int) ((waitZone.getWidth() - 2 * PADDING) / SPACING);
+        int rows = (int) ((waitZone.getHeight() - 2 * PADDING) / SPACING);
 
         return columns * rows;
     }
 
-    private Point2D getPoolPosition(PoolState pool, int slot) {
-        double startX = pool.poolZone.getLayoutX() + POOL_PADDING;
-        double startY = pool.poolZone.getLayoutY() + POOL_PADDING;
-
-        int columns = (int) ((pool.poolZone.getWidth() - 2 * POOL_PADDING) / POOL_SPACING);
-        if (columns <= 0) {
-            columns = 1;
-        }
-
-        double x = startX + (slot % columns) * POOL_SPACING;
-        double y = startY + (slot / columns) * POOL_SPACING;
-
-        return new Point2D(x, y);
-    }
-
-    private int reservePoolSlot(PoolState pool) {
-        for (int i = 0; i < pool.occupiedSlots.length; i++) {
-            if (!pool.occupiedSlots[i]) {
-                pool.occupiedSlots[i] = true;
-                return i;
-            }
-        }
-        return 0;
-    }
-
-    private int reserveQueueSlot(PoolState pool) {
-        for (int i = 0; i < pool.occupiedQueueSlots.length; i++) {
-            if (!pool.occupiedQueueSlots[i]) {
-                pool.occupiedQueueSlots[i] = true;
-                return i;
-            }
-        }
-        return pool.occupiedQueueSlots.length - 1;
-    }
-
-    private PoolState findPoolState(Rectangle pool) {
-        for (PoolState poolState : pools) {
-            if (poolState.poolZone == pool) {
-                return poolState;
-            }
-        }
-        return pools.get(0);
-    }
-
-    private static class PoolState {
+    private static class PoolViewState {
         private final Rectangle poolZone;
         private final Rectangle waitZone;
-        private final int capacity;
-        private final boolean[] occupiedSlots;
-        private final boolean[] occupiedQueueSlots;
-        private final List<Circle> waitingCustomers = new ArrayList<>();
-        private int occupiedCustomers = 0;
+        private final List<Boolean> occupiedPoolSlots = new ArrayList<>();
+        private final List<Boolean> occupiedQueueSlots = new ArrayList<>();
 
-        private PoolState(Rectangle poolZone, Rectangle waitZone, int capacity) {
+        private PoolViewState(Rectangle poolZone, Rectangle waitZone, int poolCapacity) {
             this.poolZone = poolZone;
             this.waitZone = waitZone;
-            this.capacity = capacity;
-            this.occupiedSlots = new boolean[capacity];
-            this.occupiedQueueSlots = new boolean[getQueueSlotCount(waitZone)];
+            for (int i = 0; i < poolCapacity; i++) {
+                this.occupiedPoolSlots.add(false);
+            }
+            for (int i = 0; i < getQueueSlotCount(waitZone); i++) {
+                this.occupiedQueueSlots.add(false);
+            }
+        }
+    }
+
+    private static class PoolSlot {
+        private final PoolViewState pool;
+        private final int slot;
+
+        private PoolSlot(PoolViewState pool, int slot) {
+            this.pool = pool;
+            this.slot = slot;
         }
     }
 }

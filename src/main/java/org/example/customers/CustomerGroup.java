@@ -73,6 +73,15 @@ public class CustomerGroup {
         return false;
     }
 
+    public boolean hasChild() {
+        for (Customer customer : customers) {
+            if (!customer.isAdult()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int getCustomerId() {
         return customerId;
     }

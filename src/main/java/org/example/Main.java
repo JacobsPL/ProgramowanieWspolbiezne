@@ -16,6 +16,7 @@ public class Main {
     public static void main(String[] args) throws InterruptedException, IOException {
 
         AppConfig config = AppConfig.getInstance();
+
         CustomerGroupFactory customerGroupFactory = new CustomerGroupFactory();
         SwimmingCenter swimmingCenter = new SwimmingCenter();
         SimulationEventListener eventListener = event -> System.out.println(
@@ -26,7 +27,7 @@ public class Main {
 
         int customerGroups = config.getInt("simulation.customer.groups");
         List<Thread> customersThreads = new ArrayList<>();
-        Thread poolServiceThread = new Thread(new PoolService(swimmingCenter));
+        Thread poolServiceThread = new Thread(new PoolService(swimmingCenter,eventListener));
         poolServiceThread.start();
 
         for (int i = 0; i < customerGroups; i++) {

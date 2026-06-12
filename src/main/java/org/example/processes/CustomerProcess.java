@@ -12,6 +12,8 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class CustomerProcess implements Runnable {
 
+    private static final int ANIMATION_STEP_DELAY_MS = 700;
+
     private CustomerGroup customerGroup;
     private SwimmingCenter swimmingCenter;
     private long ticketDurationMs;
@@ -23,11 +25,18 @@ public class CustomerProcess implements Runnable {
     private final SimulationEventListener eventListener;
 
     public CustomerProcess(CustomerGroup customerGroup, SwimmingCenter swimmingCenter, SimulationEventListener eventListener) {
+        this(customerGroup, swimmingCenter, eventListener, AppConfig.getInstance().getLong("ticket.duration.ms"));
+    }
+
+    public CustomerProcess(CustomerGroup customerGroup,
+                           SwimmingCenter swimmingCenter,
+                           SimulationEventListener eventListener,
+                           long ticketDurationMs) {
         this.eventListener = eventListener;
         AppConfig config = AppConfig.getInstance();
         this.customerGroup = customerGroup;
         this.swimmingCenter = swimmingCenter;
-        this.ticketDurationMs = config.getLong("ticket.duration.ms");
+        this.ticketDurationMs = ticketDurationMs;
         this.minSwimmingTimeMs = config.getInt("customer.swimming.time.min.ms");
         this.maxSwimmingTimeMs = config.getInt("customer.swimming.time.max.ms");
         this.minWaitTimeMs = config.getInt("customer.wait.time.min.ms");
@@ -42,6 +51,10 @@ public class CustomerProcess implements Runnable {
         return ThreadLocalRandom.current().nextInt(minWaitTimeMs, maxWaitTimeMs + 1);
     }
 
+    private void waitForAnimationStep() throws InterruptedException {
+        Thread.sleep(ANIMATION_STEP_DELAY_MS);
+    }
+
     @Override
     public void run() {
         SwimmingPool enteredPool = null;
@@ -50,14 +63,13 @@ public class CustomerProcess implements Runnable {
                 new SimulationEvent(
                         SimulationEventType.CUSTOMER_CREATED,
                         customerGroup.getCustomerId(),
-                        "main-queue"));
+                        "main-queue",
+                        customerGroup.isVipGroup(),
+                        customerGroup.hasChild(),
+                        customerGroup.getCustomerAmount()));
         try {
-            eventListener.onEvent(
-                    new SimulationEvent(
-                            SimulationEventType.MOVED_TO_CASHIER,
-                            customerGroup.getCustomerId(),
-                            "cashier"));
-            enteredCenter = swimmingCenter.enterCenter(customerGroup);
+            waitForAnimationStep();
+            enteredCenter = swimmingCenter.enterCenter(customerGroup, eventListener);
             if (!enteredCenter) {
                 return;
             }
@@ -65,12 +77,16 @@ public class CustomerProcess implements Runnable {
                     new SimulationEvent(
                             SimulationEventType.ENTERED_CENTER,
                             customerGroup.getCustomerId(),
-                            "gate"));
+                            "gate",
+                            customerGroup.isVipGroup(),
+                            customerGroup.hasChild(),
+                            customerGroup.getCustomerAmount()));
+            waitForAnimationStep();
 
             long ticketEndTime = System.currentTimeMillis() + ticketDurationMs;
 
             while (System.currentTimeMillis() < ticketEndTime) {
-                enteredPool = swimmingCenter.tryEnterAnyPool(customerGroup);
+                enteredPool = swimmingCenter.tryEnterAnyPool(customerGroup, eventListener);
 
 
                 if (enteredPool == null) {
@@ -79,14 +95,11 @@ public class CustomerProcess implements Runnable {
                 }
                 eventListener.onEvent(
                         new SimulationEvent(
-                                SimulationEventType.MOVED_TO_POOL_QUEUE,
-                                customerGroup.getCustomerId(),
-                                enteredPool.getName()));
-                eventListener.onEvent(
-                        new SimulationEvent(
                                 SimulationEventType.ENTERED_POOL,
                                 customerGroup.getCustomerId(),
-                                enteredPool.getName()));
+                                enteredPool.getName(),
+                                customerGroup.getCustomerAmount()));
+                waitForAnimationStep();
 
 
                 int swimmingTime = generateRandomSwimmingTime();
@@ -97,7 +110,8 @@ public class CustomerProcess implements Runnable {
                             new SimulationEvent(
                                     SimulationEventType.LEFT_POOL,
                                     customerGroup.getCustomerId(),
-                                    enteredPool.getName()));
+                                    enteredPool.getName(),
+                                    customerGroup.getCustomerAmount()));
                     enteredPool.leavePool(customerGroup);
 
                     enteredPool = null;
@@ -110,7 +124,8 @@ public class CustomerProcess implements Runnable {
                         new SimulationEvent(
                                 SimulationEventType.LEFT_POOL,
                                 customerGroup.getCustomerId(),
-                                enteredPool.getName()));
+                                enteredPool.getName(),
+                                customerGroup.getCustomerAmount()));
 
                 enteredPool.leavePool(customerGroup);
                 enteredPool = null;
@@ -124,16 +139,18 @@ public class CustomerProcess implements Runnable {
                         new SimulationEvent(
                                 SimulationEventType.LEFT_POOL,
                                 customerGroup.getCustomerId(),
-                                enteredPool.getName()));
+                                enteredPool.getName(),
+                                customerGroup.getCustomerAmount()));
                 enteredPool.leavePool(customerGroup);
             }
         } finally {
             if (enteredCenter) {
                 eventListener.onEvent(
                         new SimulationEvent(
-                                SimulationEventType.EXIT_CENTER,
-                                customerGroup.getCustomerId(),
-                                "exit-zone"));
+                        SimulationEventType.EXIT_CENTER,
+                        customerGroup.getCustomerId(),
+                        "exit-zone",
+                        customerGroup.getCustomerAmount()));
                 swimmingCenter.leaveCenter(customerGroup);
             }
         }
